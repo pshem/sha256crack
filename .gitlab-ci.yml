@@ -1,0 +1,59 @@
+# Use the buildpack dependencies docker image
+image: buildpack-deps:xenial
+
+stages:
+  - build
+  - test
+
+# Install build dependencies
+before_script:
+  - apt-get update -q=2 && apt-get install --assume-yes cmake -q=2
+
+# Build the application
+build:release:
+  stage: build
+  script:
+    - mkdir build
+    - cd build
+    - cmake -DCMAKE_BUILD_TYPE=Release ..
+    #Gitlab runners tend to have two containers. Source: `nproc -all`
+    - make -j2
+  artifacts:
+    paths:
+      - build/submission
+    expire_in: 1 week
+
+#If release fails, try building Debug
+build:debug:
+  stage: test
+  when: on_failure
+  script:
+    - mkdir build
+    - cd build
+    - cmake -DCMAKE_BUILD_TYPE=Debug ..
+    #Gitlab runners tend to have two containers. Source: `nproc -all`
+    - make -j2
+  artifacts:
+    paths:
+      - build/submission
+    when: on_failure
+    expire_in: 1 day
+
+#If building release succeeds, test it
+test:
+  stage: test
+  when: on_success
+  before_script:
+    - echo "How many cores do we have? " `nproc --all`
+  script:
+    - cd build
+    #check border values: 32 for space and 125 for }
+    - ./submission `echo -n " " | sha256sum | cut -d " " -f1`
+    - ./submission `echo -n "}}" | sha256sum | cut -d " " -f1`
+    - ./submission `echo -n "xyz" | sha256sum | cut -d " " -f1`
+    - ./submission `echo -n "dell" | sha256sum | cut -d " " -f1`
+  dependencies:
+    - build:release
+  #so that we only use artifacts:
+  variables:
+    GIT_STRATEGY: none
